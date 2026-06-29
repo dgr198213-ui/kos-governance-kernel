@@ -1,0 +1,30 @@
+{
+  "name": "kos-governance-kernel",
+  "version": "0.2.0",
+  "description": "KOS Governance Kernel - Control Plane para ejecución gobernada de IA basado en el Método Karpathy",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "studio:dev": "npm run dev -w @kos/studio-ui",
+    "studio:build": "npm run build -w @kos/studio-ui",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0",
+    "ts-node": "^10.9.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["ai", "llm", "governance", "karpathy", "openrouter", "supabase"],
+  "author": "KOS Team",
+  "license": "MIT"
+}
