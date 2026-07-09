@@ -21,7 +21,15 @@ export class SupabaseKOSClient {
     identity?: { name: string; role: string; organization: string; directives?: string[]; personality?: Record<string, unknown>; };
     policies?: { governance?: { always?: string[]; consult?: string[]; never?: string[]; }; security?: { requireHumanApproval?: boolean; maxCostPerExecution?: number; allowedModels?: string[]; }; };
   }) {
+    // Con las políticas RLS de la migración 0002, cada workspace debe
+    // pertenecer al usuario autenticado (owner_id = auth.uid()).
+    const { data: userData, error: authError } = await this.client.auth.getUser();
+    if (authError || !userData?.user) {
+      throw new Error('createWorkspace requiere una sesión autenticada de Supabase Auth');
+    }
+
     const { data: workspace, error } = await this.client.from('workspaces').insert({
+      owner_id: userData.user.id,
       name: data.name, description: data.description,
       identity_name: data.identity?.name, identity_role: data.identity?.role,
       identity_organization: data.identity?.organization,
