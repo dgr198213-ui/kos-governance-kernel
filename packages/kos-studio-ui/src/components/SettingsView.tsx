@@ -56,6 +56,17 @@ export default function SettingsView() {
           {activeSection === 'providers' && (
             <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
               <h3 className="text-lg font-semibold mb-6">Provider Configuration</h3>
+
+              <div className="mb-6 p-4 bg-amber-950/40 border border-amber-800/50 rounded-lg text-sm text-amber-200">
+                <p className="font-medium mb-1">⚠️ Aviso de seguridad</p>
+                <p>
+                  Esta pantalla es una maqueta: las claves no se guardan en ningún sitio.
+                  Nunca introduzcas claves de API reales en el frontend — cualquier clave
+                  en el navegador es visible para el usuario y para extensiones. Configura
+                  <code className="mx-1 px-1 bg-slate-800 rounded">OPENROUTER_API_KEY</code>
+                  como variable de entorno en el backend (ver <code className="px-1 bg-slate-800 rounded">.env.example</code>).
+                </p>
+              </div>
               
               <div className="space-y-6">
                 <div className="space-y-4">
