@@ -12,11 +12,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@kos/control-plane": "0.2.0",
-    "zod": "^3.22.4"
+    "@kos/control-plane": "0.2.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
-    "vitest": "^1.2.0"
+    "vitest": "^4.0.5"
   }
 }
