@@ -1,4 +1,6 @@
 import { eventBus } from '../../event-bus/index.js';
+import { parseJsonLoose } from '../../llm/llm-client.js';
+import type { LLMClient } from '../../llm/llm-client.js';
 import type { Intent, SpecConfig, Specification, InterviewQuestion, InterviewAnswer, ExtractedContext, QualityCriterion, ExecutionPlan, MicroTask, SpecGenerationResult } from './types.js';
 
 export class SpecEngine {
@@ -11,7 +13,7 @@ export class SpecEngine {
     ambiguityThreshold: 0.3
   };
 
-  constructor(private config: Partial<SpecConfig> = {}) {}
+  constructor(private config: Partial<SpecConfig> = {}, private llm?: LLMClient) {}
 
   async generateSpec(intent: Intent, configOverrides?: Partial<SpecConfig>): Promise<SpecGenerationResult> {
     const config = { ...this.defaultConfig, ...this.config, ...configOverrides };
@@ -25,9 +27,31 @@ export class SpecEngine {
 
     const interviewTranscript: Array<{ question: InterviewQuestion; answer: InterviewAnswer; timestamp: number; }> = [];
     const extractedContext = await this.conductInterview(intent, config, interviewTranscript, correlationId);
-    const { realObjective, superficialTask } = await this.identifyRealObjective(intent, extractedContext);
-    const qualityCriteria = await this.defineQualityCriteria(realObjective, extractedContext);
-    const executionPlan = await this.createExecutionPlan(realObjective, config);
+
+    let realObjective: string;
+    let superficialTask: string;
+    let qualityCriteria: QualityCriterion[];
+    let executionPlan: ExecutionPlan;
+    const specWarnings: string[] = [];
+
+    if (this.llm) {
+      try {
+        const generated = await this.generateSpecWithLLM(intent);
+        realObjective = generated.realObjective;
+        superficialTask = generated.superficialTask;
+        qualityCriteria = generated.qualityCriteria;
+        executionPlan = generated.executionPlan;
+      } catch (error) {
+        specWarnings.push(`El planner LLM falló (${error instanceof Error ? error.message : 'error desconocido'}); se usó el plan heurístico de respaldo.`);
+        ({ realObjective, superficialTask } = await this.identifyRealObjective(intent, extractedContext));
+        qualityCriteria = await this.defineQualityCriteria(realObjective, extractedContext);
+        executionPlan = await this.createExecutionPlan(realObjective, config);
+      }
+    } else {
+      ({ realObjective, superficialTask } = await this.identifyRealObjective(intent, extractedContext));
+      qualityCriteria = await this.defineQualityCriteria(realObjective, extractedContext);
+      executionPlan = await this.createExecutionPlan(realObjective, config);
+    }
     const validationCheckpoints = config.validationCheckpoints ? await this.defineValidationCheckpoints(executionPlan) : [];
     const ambiguityScore = this.calculateAmbiguityScore(extractedContext, interviewTranscript);
 
@@ -44,7 +68,7 @@ export class SpecEngine {
       payload: { specId: specification.id, intentId: intent.id, realObjective: specification.realObjective, qualityCriteriaCount: qualityCriteria.length, executionPlanSteps: executionPlan.microTasks.length }
     });
 
-    return { specification, interviewTranscript, warnings: this.generateWarnings(specification), recommendations: this.generateRecommendations(specification) };
+    return { specification, interviewTranscript, warnings: [...specWarnings, ...this.generateWarnings(specification)], recommendations: this.generateRecommendations(specification) };
   }
 
   private async conductInterview(intent: Intent, config: SpecConfig, transcript: any[], correlationId: string): Promise<ExtractedContext> {
@@ -140,6 +164,80 @@ export class SpecEngine {
 
   private generateRecommendations(spec: Specification): string[] {
     return ['Revisa la especificación con stakeholders antes de ejecutar.', 'Documenta las integraciones externas.'];
+  }
+
+  private async generateSpecWithLLM(intent: Intent): Promise<{ realObjective: string; superficialTask: string; qualityCriteria: QualityCriterion[]; executionPlan: ExecutionPlan; }> {
+    const system = [
+      'Eres el Spec Engine del kernel de gobernanza KOS.',
+      'Transformas la intención de un usuario en una especificación ejecutable.',
+      'Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional ni fences, con esta forma exacta:',
+      '{',
+      '  "realObjective": "objetivo de negocio real, una frase",',
+      '  "superficialTask": "la tarea tal y como la pidió el usuario",',
+      '  "qualityCriteria": [ { "name": "...", "description": "...", "priority": "must-have|should-have|nice-to-have" } ],  // 2 a 5 criterios',
+      '  "microTasks": [ { "title": "...", "description": "...", "expectedOutput": "...", "estimatedComplexity": "low|medium|high", "requiresHotReview": true|false } ]  // 2 a 6 tareas secuenciales y concretas',
+      '}',
+    ].join('\n');
+
+    const completion = await this.llm!.complete(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: `Intención del usuario: ${intent.rawInput}` },
+      ],
+      { temperature: 0.2, maxTokens: 1500 }
+    );
+
+    const parsed = parseJsonLoose<{
+      realObjective?: string;
+      superficialTask?: string;
+      qualityCriteria?: Array<{ name?: string; description?: string; priority?: string }>;
+      microTasks?: Array<{ title?: string; description?: string; expectedOutput?: string; estimatedComplexity?: string; requiresHotReview?: boolean }>;
+    }>(completion.content);
+
+    const rawTasks = (parsed.microTasks ?? []).filter(t => t.title).slice(0, 8);
+    if (rawTasks.length < 1) throw new Error('El modelo no devolvió micro-tareas válidas');
+
+    const validPriorities = new Set(['must-have', 'should-have', 'nice-to-have']);
+    const validComplexities = new Set(['low', 'medium', 'high']);
+
+    const qualityCriteria: QualityCriterion[] = (parsed.qualityCriteria ?? [])
+      .filter(c => c.name)
+      .slice(0, 6)
+      .map(c => ({
+        id: this.generateId(),
+        name: c.name!,
+        description: c.description ?? c.name!,
+        measurable: true,
+        metric: { type: 'score', target: 85, tolerance: 10 },
+        priority: (validPriorities.has(c.priority ?? '') ? c.priority : 'should-have') as QualityCriterion['priority'],
+        verificationMethod: 'automated',
+      }));
+    if (qualityCriteria.length === 0) {
+      qualityCriteria.push({ id: this.generateId(), name: 'Alineación con objetivo', description: 'El output debe abordar el objetivo real', measurable: true, metric: { type: 'score', target: 85, tolerance: 10 }, priority: 'must-have', verificationMethod: 'automated' });
+    }
+
+    const microTasks: MicroTask[] = rawTasks.map((t, index) => ({
+      id: this.generateId(),
+      index,
+      title: t.title!,
+      description: t.description ?? t.title!,
+      dependencies: index === 0 ? [] : [`task-${index - 1}`],
+      estimatedComplexity: (validComplexities.has(t.estimatedComplexity ?? '') ? t.estimatedComplexity : 'medium') as MicroTask['estimatedComplexity'],
+      requiresHotReview: t.requiresHotReview ?? false,
+      expectedOutput: t.expectedOutput ?? 'Entregable de la tarea',
+    }));
+
+    return {
+      realObjective: parsed.realObjective ?? intent.rawInput,
+      superficialTask: parsed.superficialTask ?? intent.rawInput,
+      qualityCriteria,
+      executionPlan: {
+        microTasks,
+        totalEstimatedTime: microTasks.reduce((sum, t) => sum + (t.estimatedComplexity === 'low' ? 30 : t.estimatedComplexity === 'medium' ? 60 : 120), 0),
+        criticalPath: microTasks.map(t => t.id),
+        parallelizable: [],
+      },
+    };
   }
 
   private generateId(): string {

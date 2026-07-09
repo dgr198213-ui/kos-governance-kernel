@@ -1,5 +1,5 @@
-import { KOSPipeline } from '@kos/control-plane';
-import { ProviderRouter, OpenRouterProvider, OpenRouterTaskExecutor } from '@kos/capability-runtime';
+import { KOSPipeline, SpecEngine, VerifierEngine } from '@kos/control-plane';
+import { ProviderRouter, OpenRouterProvider, OpenRouterTaskExecutor, OpenRouterLLMClient } from '@kos/capability-runtime';
 
 export interface ProviderSettings {
   openRouterApiKey: string;
@@ -34,10 +34,15 @@ export class ChatService {
       return;
     }
     const provider = new OpenRouterProvider({ apiKey });
+    const llm = new OpenRouterLLMClient(provider, { model: settings.model });
     const executor = new OpenRouterTaskExecutor(provider, { model: settings.model });
     this.pipeline = new KOSPipeline(
       { enableHumanApproval: true, enableAudit: true },
-      { executor }
+      {
+        executor,
+        spec: new SpecEngine({}, llm),        // planificación real
+        verifier: new VerifierEngine({}, llm), // crítico real
+      }
     );
     this.live = true;
     this.activeModel = settings.model ?? 'meta-llama/llama-3.1-8b-instruct:free';

@@ -1,4 +1,6 @@
 import { eventBus } from '../../event-bus/index.js';
+import { parseJsonLoose } from '../../llm/llm-client.js';
+import type { LLMClient } from '../../llm/llm-client.js';
 import type { Specification, QualityCriterion } from '../spec/types.js';
 import type { VerificationConfig, VerificationReport, VerificationIteration, QualityCheck, ExternalAuditReport, ExternalSignalValidation, ExecutionResult } from './types.js';
 
@@ -8,7 +10,7 @@ export class VerifierEngine {
     qualityThreshold: 85, auditorModel: 'claude-3-5-sonnet-20241022', maxIterationsBeforeEscalation: 5
   };
 
-  constructor(private config: Partial<VerificationConfig> = {}) {}
+  constructor(private config: Partial<VerificationConfig> = {}, private llm?: LLMClient) {}
 
   async verify(spec: Specification, executionResult: ExecutionResult, configOverrides?: Partial<VerificationConfig>): Promise<VerificationReport> {
     const config = { ...this.defaultConfig, ...this.config, ...configOverrides };
@@ -91,16 +93,54 @@ export class VerifierEngine {
   }
 
   private async validateCriterion(criterion: QualityCriterion, executionResult: ExecutionResult): Promise<QualityCheck> {
+    // Evaluación determinista basada en la evidencia real de la ejecución:
+    // misma entrada => misma puntuación. Nada de azar en un kernel de gobernanza.
+    const evidence = this.collectEvidence(executionResult);
+    const base = evidence.baseScore;
     let score = 0, passed = false, details = '';
+
     if (criterion.metric) {
       switch (criterion.metric.type) {
-        case 'score': score = 70 + Math.random() * 30; passed = score >= (criterion.metric.target as number) - (criterion.metric.tolerance || 0); details = `Score: ${score.toFixed(1)}/100`; break;
-        case 'binary': passed = Math.random() > 0.2; score = passed ? 100 : 0; details = passed ? 'Criterio cumplido' : 'No cumplido'; break;
-        case 'threshold': score = 85 + Math.random() * 15; passed = score >= (criterion.metric.target as number); details = `Valor: ${score.toFixed(1)}`; break;
-        case 'range': score = 90; passed = true; details = 'Dentro del rango'; break;
+        case 'score':
+          score = base;
+          passed = score >= (criterion.metric.target as number) - (criterion.metric.tolerance || 0);
+          details = `Score: ${score.toFixed(1)}/100 (artefactos: ${evidence.artifactCount}, éxito log: ${(evidence.successRatio * 100).toFixed(0)}%)`;
+          break;
+        case 'binary':
+          passed = evidence.successRatio === 1 && evidence.artifactCount > 0 && evidence.allNonEmpty;
+          score = passed ? 100 : 0;
+          details = passed ? 'Criterio cumplido: ejecución completa con artefactos no vacíos' : 'No cumplido: hay tareas fallidas o artefactos vacíos';
+          break;
+        case 'threshold':
+          score = base;
+          passed = score >= (criterion.metric.target as number);
+          details = `Valor: ${score.toFixed(1)} (umbral: ${criterion.metric.target})`;
+          break;
+        case 'range':
+          score = base;
+          passed = true;
+          details = 'Dentro del rango';
+          break;
       }
     }
-    return { criterionId: criterion.id, criterionName: criterion.name, passed, score, details, evidence: ['Evaluación automática'] };
+    return { criterionId: criterion.id, criterionName: criterion.name, passed, score, details, evidence: evidence.notes };
+  }
+
+  private collectEvidence(executionResult: ExecutionResult): { baseScore: number; artifactCount: number; allNonEmpty: boolean; successRatio: number; notes: string[] } {
+    const artifactCount = executionResult.artifacts.length;
+    const allNonEmpty = artifactCount > 0 && executionResult.artifacts.every(a => String(a.content ?? '').trim().length > 0);
+    const logEntries = executionResult.executionLog.length;
+    const successes = executionResult.executionLog.filter(l => l.result === 'success').length;
+    const successRatio = logEntries === 0 ? 0 : successes / logEntries;
+    const baseScore = Math.min(100, 60 + successRatio * 25 + (allNonEmpty ? 15 : 0));
+    return {
+      baseScore, artifactCount, allNonEmpty, successRatio,
+      notes: [
+        `${artifactCount} artefacto(s) generados`,
+        `${successes}/${logEntries} tareas con éxito en el log`,
+        allNonEmpty ? 'Todos los artefactos tienen contenido' : 'Hay artefactos vacíos o no hay artefactos',
+      ],
+    };
   }
 
   private calculateCriteriaScore(checks: QualityCheck[]): number {
@@ -108,21 +148,77 @@ export class VerifierEngine {
   }
 
   private async performExternalAudit(spec: Specification, executionResult: ExecutionResult, config: VerificationConfig): Promise<ExternalAuditReport> {
+    if (this.llm) {
+      try {
+        return await this.performLLMAudit(spec, executionResult);
+      } catch {
+        // Si el crítico LLM falla, degradar a la auditoría heurística determinista.
+      }
+    }
+    const evidence = this.collectEvidence(executionResult);
     return {
-      auditorModel: config.auditorModel!, overallScore: 75 + Math.random() * 20,
-      strengths: ['Estructura clara', 'Cumple requisitos técnicos'],
-      weaknesses: ['Edge cases no cubiertos', 'Faltan tests de integración'],
-      recommendations: ['Agregar validación de inputs', 'Mejorar manejo de errores'],
-      criticalIssues: Math.random() > 0.8 ? ['Fallo en validación de seguridad'] : [],
+      auditorModel: config.auditorModel!,
+      overallScore: evidence.baseScore,
+      strengths: evidence.allNonEmpty ? ['Todos los artefactos tienen contenido'] : [],
+      weaknesses: evidence.successRatio < 1 ? ['Hay tareas fallidas en el log de ejecución'] : [],
+      recommendations: ['Activar el crítico LLM para una auditoría semántica del contenido'],
+      criticalIssues: evidence.artifactCount === 0 ? ['La ejecución no produjo ningún artefacto'] : [],
+      auditTimestamp: Date.now()
+    };
+  }
+
+  private async performLLMAudit(spec: Specification, executionResult: ExecutionResult): Promise<ExternalAuditReport> {
+    const artifactsSummary = executionResult.artifacts
+      .slice(0, 5)
+      .map(a => `### ${a.name}\n${String(a.content ?? '').slice(0, 1200)}`)
+      .join('\n\n');
+
+    const criteria = spec.qualityCriteria.map(c => `- [${c.priority}] ${c.name}: ${c.description}`).join('\n');
+
+    const completion = await this.llm!.complete(
+      [
+        {
+          role: 'system',
+          content: [
+            'Eres el modelo Critic del kernel de gobernanza KOS. Auditas el resultado de una ejecución contra su especificación.',
+            'Sé estricto y concreto. Responde ÚNICAMENTE con JSON válido:',
+            '{ "overallScore": 0-100, "strengths": ["..."], "weaknesses": ["..."], "recommendations": ["..."], "criticalIssues": ["..."] }',
+            'criticalIssues solo debe contener problemas que invaliden el resultado (vacío si no los hay).',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: `Objetivo real: ${spec.realObjective}\n\nCriterios de calidad:\n${criteria}\n\nArtefactos producidos:\n\n${artifactsSummary || '(ninguno)'}`,
+        },
+      ],
+      { temperature: 0.1, maxTokens: 900 }
+    );
+
+    const parsed = parseJsonLoose<{ overallScore?: number; strengths?: string[]; weaknesses?: string[]; recommendations?: string[]; criticalIssues?: string[] }>(completion.content);
+    const clamp = (n: unknown) => Math.max(0, Math.min(100, typeof n === 'number' ? n : 0));
+    return {
+      auditorModel: completion.model ?? 'llm-critic',
+      overallScore: clamp(parsed.overallScore),
+      strengths: parsed.strengths ?? [],
+      weaknesses: parsed.weaknesses ?? [],
+      recommendations: parsed.recommendations ?? [],
+      criticalIssues: parsed.criticalIssues ?? [],
       auditTimestamp: Date.now()
     };
   }
 
   private async validateAgainstExternalSignals(spec: Specification, executionResult: ExecutionResult): Promise<ExternalSignalValidation[]> {
-    return ['database', 'api', 'calculation'].map(signalType => {
-      const validated = Math.random() > 0.15;
-      return { signalType: signalType as any, source: `${signalType}-source`, validated, discrepancies: validated ? [] : ['Discrepancia menor'], confidence: validated ? 0.9 + Math.random() * 0.1 : 0.5 + Math.random() * 0.3 };
-    });
+    // Sin integradores de Ground Truth configurados, la única señal externa
+    // disponible es el propio log de ejecución. Determinista, sin azar.
+    const evidence = this.collectEvidence(executionResult);
+    const validated = evidence.successRatio === 1 && evidence.artifactCount > 0;
+    return [{
+      signalType: 'calculation' as any,
+      source: 'execution-log',
+      validated,
+      discrepancies: validated ? [] : ['El log de ejecución contiene tareas no exitosas o no hay artefactos'],
+      confidence: validated ? 0.95 : 0.5
+    }];
   }
 
   private calculateExternalValidationScore(validations: ExternalSignalValidation[]): number {

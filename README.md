@@ -7,12 +7,12 @@ KOS (Kernel Operating System) es un sistema operativo de gobernanza diseñado pa
 ## 🚀 Características Principales
 
 ### 🧠 Control Plane Determinista
-- **Spec Engine**: Transforma intenciones ambiguas en especificaciones técnicas detalladas mediante entrevistas diagnósticas.
+- **Spec Engine**: Transforma intenciones ambiguas en especificaciones técnicas detalladas. Con un `LLMClient` inyectado, el objetivo real, los criterios de calidad y las micro-tareas se **generan con un modelo real adaptados a cada intención** (con fallback heurístico si el modelo falla); sin él, usa el plan heurístico.
 - **Agile Executor**: Descompone tareas complejas en micro-tareas manejables con gestión de dependencias.
 - **Event Bus**: Sistema de comunicación reactiva que permite la trazabilidad total de cada decisión tomada por la IA.
 
 ### 🛡️ Gobernanza y Verificación
-- **Verifier Engine**: Auditoría automática de resultados mediante modelos de IA secundarios y validación de señales externas.
+- **Verifier Engine**: Auditoría automática de resultados. Con un `LLMClient` inyectado usa un **modelo crítico real** que puntúa los artefactos contra los criterios de la especificación; sin él, degrada a heurísticas **deterministas** basadas en la evidencia de ejecución (misma entrada → misma puntuación, sin azar).
 - **Bucle de Retroalimentación**: Mejora iterativa del output hasta alcanzar los umbrales de calidad configurados.
 - **Políticas de Aprobación**: Soporte nativo para intervención humana en tareas críticas.
 

@@ -1,3 +1,4 @@
+export * from './llm/index.js';
 export * from './event-bus/index.js';
 export * from './engines/index.js';
 export * from './pipeline/index.js';
