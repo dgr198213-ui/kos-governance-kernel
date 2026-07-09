@@ -1,4 +1,5 @@
 import { KOSPipeline, SpecEngine, VerifierEngine } from '@kos/control-plane';
+import type { ApprovalHandler } from '@kos/control-plane';
 import { ProviderRouter, OpenRouterProvider, OpenRouterTaskExecutor, OpenRouterLLMClient } from '@kos/capability-runtime';
 
 export interface ProviderSettings {
@@ -15,6 +16,24 @@ export interface ProviderSettings {
  *   el Executor llama al modelo elegido. La clave vive SOLO en memoria de esta
  *   pestaña: no se persiste en localStorage, cookies ni backend.
  */
+
+/**
+ * Humano en el bucle: cuando la Matriz de Gobernanza (PREGUNTAR) o una
+ * puntuación de verificación baja exigen aprobación, se pregunta al
+ * usuario en el navegador. Denegar aborta el pipeline (fail-safe).
+ */
+const browserApprovalHandler: ApprovalHandler = async ({ reasons, verificationScore }) => {
+  const message = [
+    '🛡️ KOS requiere tu aprobación para continuar:',
+    '',
+    ...reasons.map(r => `• ${r}`),
+    '',
+    verificationScore !== undefined ? `Puntuación de verificación: ${verificationScore.toFixed(1)}/100` : '',
+    '¿Apruebas la ejecución?',
+  ].filter(Boolean).join('\n');
+  return window.confirm(message);
+};
+
 export class ChatService {
   private pipeline: KOSPipeline;
   private router: ProviderRouter;
@@ -23,7 +42,7 @@ export class ChatService {
 
   constructor() {
     this.router = new ProviderRouter();
-    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true });
+    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true }, { approvalHandler: browserApprovalHandler });
   }
 
   /** Activa la ejecución real con la clave del usuario (solo en memoria). */
@@ -42,6 +61,7 @@ export class ChatService {
         executor,
         spec: new SpecEngine({}, llm),        // planificación real
         verifier: new VerifierEngine({}, llm), // crítico real
+        approvalHandler: browserApprovalHandler,
       }
     );
     this.live = true;
@@ -50,7 +70,7 @@ export class ChatService {
 
   /** Vuelve al modo simulado y descarta la clave. */
   resetToSimulated(): void {
-    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true });
+    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true }, { approvalHandler: browserApprovalHandler });
     this.live = false;
     this.activeModel = null;
   }

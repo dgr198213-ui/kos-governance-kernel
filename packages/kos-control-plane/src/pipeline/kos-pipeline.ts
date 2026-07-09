@@ -6,20 +6,32 @@ import type { Intent } from '../engines/spec/types.js';
 import type { PipelineConfig, PipelineContext, PipelineResult, PipelineStage } from './types.js';
 import type { ExecutionResult } from '../engines/verification/types.js';
 import { SimulatedTaskExecutor } from './task-executor.js';
+import { GovernancePolicyEngine } from '../engines/governance/governance-engine.js';
+import type { GovernanceDecision } from '../engines/governance/governance-engine.js';
 import type { TaskExecutor } from './task-executor.js';
+
+export type ApprovalHandler = (request: {
+  workspaceId: string;
+  executionId: string;
+  reasons: string[];
+  verificationScore?: number;
+}) => Promise<boolean>;
 
 export class KOSPipeline {
   private specEngine: SpecEngine;
   private environmentEngine: EnvironmentEngine;
   private verifierEngine: VerifierEngine;
   private taskExecutor: TaskExecutor;
+  private governanceEngine = new GovernancePolicyEngine();
+  private approvalHandler?: ApprovalHandler;
   private defaultConfig: PipelineConfig = { enableHumanApproval: true, approvalThreshold: 90, maxRetries: 2, retryFromStage: 'planning', enableAudit: true, enableCommit: true };
 
-  constructor(config: Partial<PipelineConfig> = {}, engines?: { spec?: SpecEngine; environment?: EnvironmentEngine; verifier?: VerifierEngine; executor?: TaskExecutor; }) {
+  constructor(config: Partial<PipelineConfig> = {}, engines?: { spec?: SpecEngine; environment?: EnvironmentEngine; verifier?: VerifierEngine; executor?: TaskExecutor; approvalHandler?: ApprovalHandler; }) {
     this.specEngine = engines?.spec ?? new SpecEngine();
     this.environmentEngine = engines?.environment ?? new EnvironmentEngine();
     this.verifierEngine = engines?.verifier ?? new VerifierEngine();
     this.taskExecutor = engines?.executor ?? new SimulatedTaskExecutor();
+    this.approvalHandler = engines?.approvalHandler;
     this.defaultConfig = { ...this.defaultConfig, ...config };
   }
 
@@ -58,8 +70,28 @@ export class KOSPipeline {
       events.push({ stage: 'planning', timestamp: Date.now(), status: 'completed' });
       context.completedStages.push('planning');
 
-      // Stage 5: Policy Check
+      // Stage 5: Policy Check — evaluación real contra la Matriz de Gobernanza
       context.currentStage = 'policy-check';
+      const governanceDecision = this.governanceEngine.evaluate(
+        context.environment!.governanceMatrix,
+        [
+          { label: 'intención', text: intent.rawInput },
+          ...context.specification!.executionPlan.microTasks.map(t => ({
+            label: `micro-tarea ${t.index}: ${t.title}`,
+            text: `${t.title} ${t.description} ${t.expectedOutput}`,
+          })),
+        ]
+      );
+      (context as PipelineContext & { governanceDecision?: GovernanceDecision }).governanceDecision = governanceDecision;
+
+      if (governanceDecision.verdict === 'block') {
+        const violations = governanceDecision.blocks
+          .map(b => `[${b.severity}] "${b.rule}" (${b.rationale}) — detectado en ${b.matchedIn}`)
+          .join('; ');
+        await eventBus.emit({ id: this.generateId(), type: 'PolicyBlocked', timestamp: Date.now(), workspaceId: intent.workspaceId, correlationId, executionId, payload: { verdict: 'block', violations: governanceDecision.blocks } });
+        events.push({ stage: 'policy-check', timestamp: Date.now(), status: 'failed' });
+        throw new Error(`Bloqueado por la Matriz de Gobernanza (NUNCA): ${violations}`);
+      }
       events.push({ stage: 'policy-check', timestamp: Date.now(), status: 'completed' });
       context.completedStages.push('policy-check');
 
@@ -84,9 +116,31 @@ export class KOSPipeline {
       events.push({ stage: 'verification', timestamp: Date.now(), status: 'completed', duration: Date.now() - verifyStartTime });
       context.completedStages.push('verification');
 
-      // Stage 9: Approval
+      // Stage 9: Approval — humano en el bucle cuando la gobernanza o la calidad lo exigen
       if (config.enableHumanApproval) {
         context.currentStage = 'approval';
+        const decision = (context as PipelineContext & { governanceDecision?: GovernanceDecision }).governanceDecision;
+        const consultReasons = (decision?.approvals ?? []).map(a => `Regla PREGUNTAR "${a.rule}" (${a.rationale}) — detectado en ${a.matchedIn}`);
+        const scoreBelowThreshold = context.verificationReport!.finalScore < config.approvalThreshold;
+        if (scoreBelowThreshold) {
+          consultReasons.push(`Puntuación de verificación ${context.verificationReport!.finalScore.toFixed(1)} por debajo del umbral de aprobación ${config.approvalThreshold}`);
+        }
+
+        if (consultReasons.length > 0) {
+          await eventBus.emit({ id: this.generateId(), type: 'HumanApprovalRequested', timestamp: Date.now(), workspaceId: intent.workspaceId, correlationId, executionId, payload: { reasons: consultReasons, verificationScore: context.verificationReport!.finalScore } });
+
+          if (!this.approvalHandler) {
+            // Fail-safe deny: sin mecanismo de aprobación, no se avanza.
+            events.push({ stage: 'approval', timestamp: Date.now(), status: 'failed' });
+            throw new Error(`Aprobación humana requerida y no hay approvalHandler configurado: ${consultReasons.join('; ')}`);
+          }
+
+          const approved = await this.approvalHandler({ workspaceId: intent.workspaceId, executionId, reasons: consultReasons, verificationScore: context.verificationReport!.finalScore });
+          if (!approved) {
+            events.push({ stage: 'approval', timestamp: Date.now(), status: 'failed' });
+            throw new Error(`Aprobación humana denegada: ${consultReasons.join('; ')}`);
+          }
+        }
         events.push({ stage: 'approval', timestamp: Date.now(), status: 'completed' });
         context.completedStages.push('approval');
       }

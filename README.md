@@ -12,6 +12,7 @@ KOS (Kernel Operating System) es un sistema operativo de gobernanza diseñado pa
 - **Event Bus**: Sistema de comunicación reactiva que permite la trazabilidad total de cada decisión tomada por la IA.
 
 ### 🛡️ Gobernanza y Verificación
+- **Matriz de Gobernanza aplicada de verdad**: la etapa `policy-check` evalúa la intención y cada micro-tarea del plan contra las reglas del workspace con matching determinista por palabras clave (insensible a mayúsculas y acentos, explicable y auditable). Las reglas **NUNCA** bloquean el pipeline (evento `PolicyBlocked` + motivo con regla, severidad y dónde se detectó). Las reglas **PREGUNTAR** — o una puntuación de verificación bajo el umbral — disparan aprobación humana real (`HumanApprovalRequested`): en Studio UI se te pregunta en el navegador; denegar aborta. Sin `approvalHandler` configurado, el pipeline aplica *fail-safe deny*: nunca avanza sin la aprobación requerida.
 - **Verifier Engine**: Auditoría automática de resultados. Con un `LLMClient` inyectado usa un **modelo crítico real** que puntúa los artefactos contra los criterios de la especificación; sin él, degrada a heurísticas **deterministas** basadas en la evidencia de ejecución (misma entrada → misma puntuación, sin azar).
 - **Bucle de Retroalimentación**: Mejora iterativa del output hasta alcanzar los umbrales de calidad configurados.
 - **Políticas de Aprobación**: Soporte nativo para intervención humana en tareas críticas.
