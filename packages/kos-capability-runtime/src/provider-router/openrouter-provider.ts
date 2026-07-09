@@ -24,6 +24,11 @@ export interface OpenRouterModel {
   pricing: { prompt: string; completion: string; };
 }
 
+export interface OpenRouterChatCompletion {
+  choices: Array<{ message?: { content?: string } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
 export class OpenRouterProvider {
   private config: OpenRouterConfig;
   private baseUrl: string;
@@ -42,7 +47,7 @@ export class OpenRouterProvider {
       }
     });
     if (!response.ok) throw new Error(`Failed to fetch models: ${response.statusText}`);
-    const data = await response.json();
+    const data = (await response.json()) as { data: OpenRouterModel[] };
     return data.data.filter((model: OpenRouterModel) => 
       model.id.includes(':free') || (model.pricing.prompt === '0' && model.pricing.completion === '0')
     );
@@ -76,7 +81,7 @@ export class OpenRouterProvider {
         const error = await response.text();
         throw new Error(`OpenRouter API error: ${error}`);
       }
-      const data = await response.json();
+      const data = (await response.json()) as OpenRouterChatCompletion;
       const latency = Date.now() - startTime;
       const inputTokens = data.usage?.prompt_tokens || 0;
       const outputTokens = data.usage?.completion_tokens || 0;

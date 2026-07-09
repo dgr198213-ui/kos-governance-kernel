@@ -11,12 +11,12 @@ import {
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface DashboardProps {
-  onSelectWorkspace: (workspaceId: string) => void;
+  onSelectWorkspace?: (workspaceId: string) => void;
   onSelectExecution: (executionId: string) => void;
 }
 
-export default function Dashboard({ onSelectWorkspace, onSelectExecution }: DashboardProps) {
-  const [stats, setStats] = useState({
+export default function Dashboard({ onSelectExecution }: DashboardProps) {
+  const [stats] = useState({
     totalExecutions: 127,
     successRate: 94.5,
     totalCost: 45.67,

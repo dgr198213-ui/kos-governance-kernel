@@ -10,8 +10,14 @@ export class ChatService {
   private router: ProviderRouter;
 
   constructor() {
+    // El router quedará disponible para cuando el Executor haga llamadas reales a LLMs.
     this.router = new ProviderRouter();
-    this.pipeline = new KOSPipeline(this.router);
+    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true });
+  }
+
+  /** Expone el router para configuración de proveedores desde la UI. */
+  getRouter(): ProviderRouter {
+    return this.router;
   }
 
   /**
