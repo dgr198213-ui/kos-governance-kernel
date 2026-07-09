@@ -32,7 +32,14 @@ packages/
 ├── kos-capability-runtime/  # Ejecución: Gestión de Skills y Router de modelos.
 ├── kos-persistence/         # Datos: Capa de persistencia con Supabase.
 └── kos-studio-ui/           # Interfaz: Dashboard visual y gestión de workspaces.
+
+docs/
+├── KOS_Kernel_Architecture_Design.md   # Diseño arquitectónico del kernel.
+├── KOS_SaaS_Platform.md                # Documentación del KOS SaaS Platform (repo externo).
+└── legacy/kos-kernel.prototype.ts      # Prototipo inicial del kernel (referencia histórica).
 ```
+
+> **Nota:** El *KOS SaaS Platform* (React + Express + tRPC, generado con Manus) vive en un repositorio propio y **no forma parte de este monorepo**. Aquí solo se conserva su documentación en `docs/KOS_SaaS_Platform.md`.
 
 ## 🛠️ Instalación y Configuración
 
@@ -64,6 +71,9 @@ packages/
    VITE_SUPABASE_ANON_KEY=tu_anon_key
    OPENROUTER_API_KEY=tu_clave_openrouter
    ```
+   (Hay una plantilla disponible en `.env.example`.)
+
+   > ⚠️ **Seguridad:** `OPENROUTER_API_KEY` no debe usarse nunca desde el navegador. Cualquier variable con prefijo `VITE_` se incrusta en el bundle del frontend y es pública. Las llamadas a OpenRouter deben hacerse desde un backend o proxy.
 
 ## 🚀 Ejecución
 
@@ -73,11 +83,20 @@ Para iniciar el Dashboard de Studio UI:
 npm run studio:dev
 ```
 
+### Build
+Compila los paquetes en orden topológico (control-plane → capability-runtime → persistence → studio-ui):
+```bash
+npm run build
+```
+
 ### Tests
-Para ejecutar la suite de pruebas de los motores:
+La suite cubre EventBus, SpecEngine, KOSPipeline, ProviderRouter y OpenRouterProvider (con `fetch` mockeado):
 ```bash
 npm test
 ```
+
+### Integración continua
+Cada push y pull request a `main` ejecuta build + tests mediante GitHub Actions (`.github/workflows/ci.yml`).
 
 ## 📜 Licencia
 Este proyecto está bajo la Licencia MIT.
