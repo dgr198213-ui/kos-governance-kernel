@@ -16,6 +16,23 @@ KOS (Kernel Operating System) es un sistema operativo de gobernanza diseñado pa
 - **Bucle de Retroalimentación**: Mejora iterativa del output hasta alcanzar los umbrales de calidad configurados.
 - **Políticas de Aprobación**: Soporte nativo para intervención humana en tareas críticas.
 
+### ⚡ Ejecución real de extremo a extremo
+- **TaskExecutor (puerto)**: el Control Plane define la interfaz de ejecución de micro-tareas sin conocer la implementación (inversión de dependencias).
+- **OpenRouterTaskExecutor (adaptador)**: implementación real en el Capability Runtime — cada micro-tarea se ejecuta contra el modelo configurado en OpenRouter, con el objetivo real de la especificación, los criterios de calidad *must-have* y los artefactos previos como contexto.
+- **SimulatedTaskExecutor**: modo por defecto sin red (tests, CI, demos).
+- **Modo BYOK en Studio UI**: introduce tu clave de OpenRouter en Settings y el pipeline pasa de simulado a real. La clave vive solo en memoria de la pestaña — nunca se persiste.
+
+```typescript
+import { KOSPipeline } from '@kos/control-plane';
+import { OpenRouterProvider, OpenRouterTaskExecutor } from '@kos/capability-runtime';
+
+const provider = new OpenRouterProvider({ apiKey: process.env.OPENROUTER_API_KEY! });
+const executor = new OpenRouterTaskExecutor(provider, { model: 'meta-llama/llama-3.1-8b-instruct:free' });
+const pipeline = new KOSPipeline({}, { executor });
+
+const result = await pipeline.execute(intent); // ejecución real, verificada y auditada
+```
+
 ### 🛠️ Runtime de Capacidades
 - **Skill System**: Arquitectura modular para registrar y ejecutar habilidades específicas (código, datos, APIs).
 - **Provider Router**: Enrutamiento inteligente hacia modelos de IA (OpenAI, Anthropic, Google) optimizando coste, latencia y calidad a través de **OpenRouter**.

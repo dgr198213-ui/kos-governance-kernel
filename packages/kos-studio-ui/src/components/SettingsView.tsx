@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { chatService } from '../services/ChatService';
 import { 
   Database, 
   Key, 
@@ -11,10 +12,23 @@ import {
 export default function SettingsView() {
   const [activeSection, setActiveSection] = useState<'providers' | 'database' | 'governance' | 'general'>('providers');
   const [saved, setSaved] = useState(false);
+  const [openRouterKey, setOpenRouterKey] = useState('');
+  const [model, setModel] = useState('meta-llama/llama-3.1-8b-instruct:free');
+  const [liveMode, setLiveMode] = useState(chatService.isLive());
 
   const handleSave = () => {
+    if (activeSection === 'providers') {
+      chatService.configureProviders({ openRouterApiKey: openRouterKey, model });
+      setLiveMode(chatService.isLive());
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleDisconnect = () => {
+    chatService.resetToSimulated();
+    setOpenRouterKey('');
+    setLiveMode(false);
   };
 
   return (
@@ -58,13 +72,23 @@ export default function SettingsView() {
               <h3 className="text-lg font-semibold mb-6">Provider Configuration</h3>
 
               <div className="mb-6 p-4 bg-amber-950/40 border border-amber-800/50 rounded-lg text-sm text-amber-200">
-                <p className="font-medium mb-1">⚠️ Aviso de seguridad</p>
+                <p className="font-medium mb-1">🔑 Modo BYOK (Bring Your Own Key)</p>
                 <p>
-                  Esta pantalla es una maqueta: las claves no se guardan en ningún sitio.
-                  Nunca introduzcas claves de API reales en el frontend — cualquier clave
-                  en el navegador es visible para el usuario y para extensiones. Configura
-                  <code className="mx-1 px-1 bg-slate-800 rounded">OPENROUTER_API_KEY</code>
-                  como variable de entorno en el backend (ver <code className="px-1 bg-slate-800 rounded">.env.example</code>).
+                  Tu clave de OpenRouter se usa <strong>solo en memoria de esta pestaña</strong> para
+                  que el Executor llame al modelo directamente: no se guarda en localStorage, cookies
+                  ni ningún servidor. Al recargar la página se descarta. Para producción, usa un
+                  backend/proxy con <code className="mx-1 px-1 bg-slate-800 rounded">OPENROUTER_API_KEY</code>
+                  (ver <code className="px-1 bg-slate-800 rounded">.env.example</code>).
+                </p>
+                <p className="mt-2">
+                  Estado: {liveMode
+                    ? <span className="text-emerald-300 font-medium">● Ejecución real activa ({chatService.getActiveModel()})</span>
+                    : <span className="text-slate-300">○ Modo simulado (sin clave)</span>}
+                  {liveMode && (
+                    <button onClick={handleDisconnect} className="ml-3 underline text-amber-300 hover:text-amber-100">
+                      Desconectar y borrar clave
+                    </button>
+                  )}
                 </p>
               </div>
               
@@ -85,6 +109,19 @@ export default function SettingsView() {
                     <input
                       type="password"
                       placeholder="sk-or-..."
+                      value={openRouterKey}
+                      onChange={(e) => setOpenRouterKey(e.target.value)}
+                      autoComplete="off"
+                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-kos-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">Modelo</label>
+                    <input
+                      type="text"
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                      placeholder="meta-llama/llama-3.1-8b-instruct:free"
                       className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-kos-primary"
                     />
                   </div>

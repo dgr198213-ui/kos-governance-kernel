@@ -79,3 +79,46 @@ describe('KOSPipeline', () => {
     expect(result.failureReason).toContain('spec boom');
   });
 });
+
+describe('KOSPipeline con TaskExecutor inyectado', () => {
+  it('usa el ejecutor inyectado y refleja su contenido y métricas', async () => {
+    const customExecutor = {
+      executeTask: async ({ task }: { task: { title: string } }) => ({
+        content: `contenido real de ${task.title}`,
+        artifactType: 'document' as const,
+        result: 'success' as const,
+        metrics: { tokensUsed: 500, cost: 0.002, latencyMs: 10, model: 'test-model' },
+      }),
+    };
+
+    const pipeline = new KOSPipeline({}, { executor: customExecutor });
+    const result = await pipeline.execute(makeIntent());
+
+    expect(result.success).toBe(true);
+    const first = result.executionResult!.artifacts[0];
+    expect(String(first.content)).toContain('contenido real de');
+    expect(first.metadata?.model).toBe('test-model');
+    expect(result.executionResult!.metrics.tokensUsed).toBe(
+      500 * result.executionResult!.metrics.microTasksCompleted
+    );
+  });
+
+  it('aborta la etapa de ejecución si el ejecutor devuelve failure', async () => {
+    const failingExecutor = {
+      executeTask: async () => ({
+        content: '',
+        artifactType: 'document' as const,
+        result: 'failure' as const,
+        details: 'provider caído',
+        metrics: { tokensUsed: 0, cost: 0, latencyMs: 5 },
+      }),
+    };
+
+    const pipeline = new KOSPipeline({}, { executor: failingExecutor });
+    const result = await pipeline.execute(makeIntent());
+
+    expect(result.success).toBe(false);
+    expect(result.failedAt).toBe('execution');
+    expect(result.failureReason).toContain('provider caído');
+  });
+});

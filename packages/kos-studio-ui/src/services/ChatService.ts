@@ -1,18 +1,62 @@
 import { KOSPipeline } from '@kos/control-plane';
-import { ProviderRouter } from '@kos/capability-runtime';
+import { ProviderRouter, OpenRouterProvider, OpenRouterTaskExecutor } from '@kos/capability-runtime';
+
+export interface ProviderSettings {
+  openRouterApiKey: string;
+  model?: string;
+}
 
 /**
  * ChatService actúa como el puente entre la interfaz de usuario y el núcleo de KOS.
- * Orquesta el flujo desde que el usuario envía un mensaje hasta que el Verifier Engine lo valida.
+ *
+ * Dos modos de ejecución:
+ * - Simulado (por defecto): el pipeline genera artefactos placeholder sin red.
+ * - Real (BYOK): si el usuario configura su clave de OpenRouter en Settings,
+ *   el Executor llama al modelo elegido. La clave vive SOLO en memoria de esta
+ *   pestaña: no se persiste en localStorage, cookies ni backend.
  */
 export class ChatService {
   private pipeline: KOSPipeline;
   private router: ProviderRouter;
+  private live = false;
+  private activeModel: string | null = null;
 
   constructor() {
-    // El router quedará disponible para cuando el Executor haga llamadas reales a LLMs.
     this.router = new ProviderRouter();
     this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true });
+  }
+
+  /** Activa la ejecución real con la clave del usuario (solo en memoria). */
+  configureProviders(settings: ProviderSettings): void {
+    const apiKey = settings.openRouterApiKey.trim();
+    if (!apiKey) {
+      this.resetToSimulated();
+      return;
+    }
+    const provider = new OpenRouterProvider({ apiKey });
+    const executor = new OpenRouterTaskExecutor(provider, { model: settings.model });
+    this.pipeline = new KOSPipeline(
+      { enableHumanApproval: true, enableAudit: true },
+      { executor }
+    );
+    this.live = true;
+    this.activeModel = settings.model ?? 'meta-llama/llama-3.1-8b-instruct:free';
+  }
+
+  /** Vuelve al modo simulado y descarta la clave. */
+  resetToSimulated(): void {
+    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true });
+    this.live = false;
+    this.activeModel = null;
+  }
+
+  /** ¿Está el Executor conectado a un LLM real? */
+  isLive(): boolean {
+    return this.live;
+  }
+
+  getActiveModel(): string | null {
+    return this.activeModel;
   }
 
   /** Expone el router para configuración de proveedores desde la UI. */
@@ -26,10 +70,7 @@ export class ChatService {
   async processRequest(workspaceId: string, input: string, onStatusChange: (status: string) => void) {
     try {
       onStatusChange('specifying');
-      
-      // En una implementación real, aquí llamaríamos al pipeline.execute
-      // Para la demo de la UI, simulamos los pasos que el kernel realiza internamente
-      
+
       const result = await this.pipeline.execute({
         id: `intent-${Date.now()}`,
         workspaceId,

@@ -5,17 +5,21 @@ import { VerifierEngine } from '../engines/verification/index.js';
 import type { Intent } from '../engines/spec/types.js';
 import type { PipelineConfig, PipelineContext, PipelineResult, PipelineStage } from './types.js';
 import type { ExecutionResult } from '../engines/verification/types.js';
+import { SimulatedTaskExecutor } from './task-executor.js';
+import type { TaskExecutor } from './task-executor.js';
 
 export class KOSPipeline {
   private specEngine: SpecEngine;
   private environmentEngine: EnvironmentEngine;
   private verifierEngine: VerifierEngine;
+  private taskExecutor: TaskExecutor;
   private defaultConfig: PipelineConfig = { enableHumanApproval: true, approvalThreshold: 90, maxRetries: 2, retryFromStage: 'planning', enableAudit: true, enableCommit: true };
 
-  constructor(config: Partial<PipelineConfig> = {}, engines?: { spec?: SpecEngine; environment?: EnvironmentEngine; verifier?: VerifierEngine; }) {
+  constructor(config: Partial<PipelineConfig> = {}, engines?: { spec?: SpecEngine; environment?: EnvironmentEngine; verifier?: VerifierEngine; executor?: TaskExecutor; }) {
     this.specEngine = engines?.spec ?? new SpecEngine();
     this.environmentEngine = engines?.environment ?? new EnvironmentEngine();
     this.verifierEngine = engines?.verifier ?? new VerifierEngine();
+    this.taskExecutor = engines?.executor ?? new SimulatedTaskExecutor();
     this.defaultConfig = { ...this.defaultConfig, ...config };
   }
 
@@ -120,13 +124,26 @@ export class KOSPipeline {
     for (const task of context.specification!.executionPlan.microTasks) {
       const taskStartTime = Date.now();
       await eventBus.emit({ id: this.generateId(), type: 'MicroTaskStarted', timestamp: taskStartTime, workspaceId: context.workspaceId, correlationId: context.correlationId, executionId: context.executionId, payload: { taskId: task.id, taskIndex: task.index, totalTasks: context.specification!.executionPlan.microTasks.length } });
-      await new Promise(resolve => setTimeout(resolve, 50));
-      artifacts.push({ id: this.generateId(), type: 'code', name: `${task.title.replace(/\s+/g, '-').toLowerCase()}.ts`, content: `// Output: ${task.title}`, metadata: { taskId: task.id } });
-      executionLog.push({ timestamp: Date.now(), taskId: task.id, action: 'execute', result: 'success', details: 'Task completed' });
+
+      const output = await this.taskExecutor.executeTask({
+        task,
+        specification: context.specification!,
+        previousArtifacts: [...artifacts],
+        workspaceId: context.workspaceId,
+      });
+
+      if (output.result === 'failure') {
+        executionLog.push({ timestamp: Date.now(), taskId: task.id, action: 'execute', result: 'failure', details: output.details ?? 'Task execution failed' });
+        throw new Error(`Micro-task "${task.title}" failed: ${output.details ?? 'unknown error'}`);
+      }
+
+      const extension = output.artifactType === 'code' ? 'ts' : output.artifactType === 'data' ? 'json' : output.artifactType === 'config' ? 'yaml' : 'md';
+      artifacts.push({ id: this.generateId(), type: output.artifactType, name: `${task.title.replace(/\s+/g, '-').toLowerCase()}.${extension}`, content: output.content, metadata: { taskId: task.id, model: output.metrics.model, latencyMs: output.metrics.latencyMs } });
+      executionLog.push({ timestamp: Date.now(), taskId: task.id, action: 'execute', result: output.result, details: output.details ?? 'Task completed' });
       await eventBus.emit({ id: this.generateId(), type: 'MicroTaskCompleted', timestamp: Date.now(), workspaceId: context.workspaceId, correlationId: context.correlationId, executionId: context.executionId, payload: { taskId: task.id, taskIndex: task.index, totalTasks: context.specification!.executionPlan.microTasks.length, output: artifacts[artifacts.length - 1], requiresHotReview: task.requiresHotReview } });
       totalDuration += Date.now() - taskStartTime;
-      tokensUsed += 1000;
-      cost += 0.01;
+      tokensUsed += output.metrics.tokensUsed;
+      cost += output.metrics.cost;
       microTasksCompleted++;
       if (task.requiresHotReview) checkpointsPassed++;
     }
