@@ -48,21 +48,23 @@ export class KOSPipeline {
       events.push({ stage: 'intent', timestamp: Date.now(), status: 'completed' });
       context.completedStages.push('intent');
 
-      // Stage 2: Specification
-      const specStartTime = Date.now();
-      context.currentStage = 'specification';
-      const specResult = await this.specEngine.generateSpec(intent);
-      context.specification = specResult.specification;
-      events.push({ stage: 'specification', timestamp: Date.now(), status: 'completed', duration: Date.now() - specStartTime });
-      context.completedStages.push('specification');
-
-      // Stage 3: Environment
+      // Stage 2: Environment — se carga ANTES de especificar para que la
+      // documentación y métodos del workspace informen el plan
       const envStartTime = Date.now();
       context.currentStage = 'environment';
       const envResult = await this.environmentEngine.loadEnvironment(intent.workspaceId);
       context.environment = envResult.environment;
       events.push({ stage: 'environment', timestamp: Date.now(), status: 'completed', duration: Date.now() - envStartTime });
       context.completedStages.push('environment');
+
+      // Stage 3: Specification — con el conocimiento relevante del workspace
+      const specStartTime = Date.now();
+      context.currentStage = 'specification';
+      const relevantKnowledge = this.selectRelevantKnowledge(intent.rawInput, context.environment!);
+      const specResult = await this.specEngine.generateSpec(intent, { knowledge: relevantKnowledge });
+      context.specification = specResult.specification;
+      events.push({ stage: 'specification', timestamp: Date.now(), status: 'completed', duration: Date.now() - specStartTime });
+      context.completedStages.push('specification');
 
       // Stage 4: Planning
       context.currentStage = 'planning';
@@ -184,6 +186,7 @@ export class KOSPipeline {
         specification: context.specification!,
         previousArtifacts: [...artifacts],
         workspaceId: context.workspaceId,
+        knowledge: this.selectRelevantKnowledge(`${task.title} ${task.description}`, context.environment!),
       });
 
       if (output.result === 'failure') {
@@ -203,6 +206,26 @@ export class KOSPipeline {
     }
 
     return { id: context.executionId, specId: context.specification!.id, workspaceId: context.workspaceId, artifacts, executionLog, metrics: { totalDuration, tokensUsed, cost, microTasksCompleted, checkpointsPassed }, completedAt: Date.now() };
+  }
+
+  /**
+   * Selección determinista del conocimiento relevante del workspace:
+   * puntúa cada item por solapamiento de palabras (título, tags, contenido)
+   * con el texto objetivo y devuelve los 3 mejores con puntuación > 0.
+   */
+  private selectRelevantKnowledge(text: string, environment: NonNullable<PipelineContext['environment']>): Array<{ title: string; category: string; content: string }> {
+    const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const words = new Set(normalize(text).split(/\W+/).filter(w => w.length > 3));
+    const scored: Array<{ score: number; title: string; category: string; content: string }> = [];
+    for (const item of environment.knowledgeBase.items.values()) {
+      const haystack = normalize(`${item.title} ${item.tags.join(' ')} ${item.content}`);
+      const haystackWords = new Set(haystack.split(/\W+/));
+      let score = 0;
+      for (const w of words) if (haystackWords.has(w)) score++;
+      for (const tag of item.tags) if (words.has(normalize(tag))) score += 2;
+      if (score > 0) scored.push({ score, title: item.title, category: item.category, content: item.content });
+    }
+    return scored.sort((a, b) => b.score - a.score).slice(0, 3).map(({ title, category, content }) => ({ title, category, content }));
   }
 
   private generateId(): string { return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`; }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { chatService } from '../services/ChatService';
 import GovernanceEditor from './GovernanceEditor';
+import KnowledgeEditor from './KnowledgeEditor';
 import { 
   Database, 
   Key, 
@@ -11,7 +12,7 @@ import {
 } from 'lucide-react';
 
 export default function SettingsView() {
-  const [activeSection, setActiveSection] = useState<'providers' | 'database' | 'governance' | 'general'>('providers');
+  const [activeSection, setActiveSection] = useState<'providers' | 'database' | 'governance' | 'knowledge' | 'general'>('providers');
   const [saved, setSaved] = useState(false);
   const [openRouterKey, setOpenRouterKey] = useState('');
   const [model, setModel] = useState('meta-llama/llama-3.1-8b-instruct:free');
@@ -46,6 +47,7 @@ export default function SettingsView() {
               { id: 'providers', label: 'Providers', icon: Globe },
               { id: 'database', label: 'Database', icon: Database },
               { id: 'governance', label: 'Governance', icon: Shield },
+              { id: 'knowledge', label: 'Knowledge', icon: Database },
               { id: 'general', label: 'General', icon: Key }
             ].map(item => {
               const Icon = item.icon;
@@ -212,6 +214,10 @@ export default function SettingsView() {
 
           {activeSection === 'governance' && (
             <GovernanceEditor />
+          )}
+
+          {activeSection === 'knowledge' && (
+            <KnowledgeEditor />
           )}
 
           {activeSection === 'general' && (

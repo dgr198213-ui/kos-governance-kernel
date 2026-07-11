@@ -37,8 +37,10 @@ export default function GovernanceEditor() {
   }, []);
 
   const save = async () => {
+    const stored = await chatService.getEnvironmentRepository().load(DEFAULT_WORKSPACE_ID);
     const config: WorkspaceEnvironmentConfig = {
-      identity: { name: identityName, role: identityRole },
+      ...(stored ?? {}),
+      identity: { ...(stored?.identity ?? {}), name: identityName, role: identityRole },
       governanceMatrix: matrix,
     };
     await chatService.getEnvironmentRepository().save(DEFAULT_WORKSPACE_ID, config);

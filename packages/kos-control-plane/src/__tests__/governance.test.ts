@@ -171,3 +171,44 @@ describe('EnvironmentRepository: la configuración del workspace gobierna el pip
     expect(allowed.success).toBe(true);
   });
 });
+
+describe('Conocimiento del workspace como contexto real', () => {
+  it('inyecta la documentación relevante en el prompt del planner LLM', async () => {
+    const repo = {
+      load: async () => ({
+        knowledgeItems: [
+          { id: 'k1', title: 'Proceso de publicación', category: 'process' as const, content: 'Todo post pasa por revisión editorial y se publica los martes.', tags: ['publicación', 'blog'], accessCount: 0 },
+          { id: 'k2', title: 'Stack técnico', category: 'technical' as const, content: 'Backend FastAPI con Postgres.', tags: ['backend'], accessCount: 0 },
+        ],
+      }),
+      save: async () => {},
+    };
+
+    const llm = {
+      complete: vi.fn(async () => ({
+        content: JSON.stringify({
+          realObjective: 'x', superficialTask: 'x',
+          qualityCriteria: [{ name: 'c', description: 'c', priority: 'must-have' }],
+          microTasks: [{ title: 't1', description: 'd', expectedOutput: 'o', estimatedComplexity: 'low', requiresHotReview: false }],
+        }),
+        tokensUsed: 10, cost: 0, latencyMs: 1, model: 'fake',
+      })),
+    };
+
+    const { EnvironmentEngine } = await import('../engines/environment/environment-engine.js');
+    const { SpecEngine } = await import('../engines/spec/spec-engine.js');
+    const pipeline = new KOSPipeline({}, {
+      environment: new EnvironmentEngine({}, repo),
+      spec: new SpecEngine({}, llm),
+    });
+
+    const result = await pipeline.execute(makeIntent('escribe un post para el blog sobre nuestra publicación mensual'));
+
+    expect(result.success).toBe(true);
+    const userMsg = llm.complete.mock.calls[0][0].find((m: { role: string }) => m.role === 'user')!.content;
+    // El doc de publicación (relevante) entra; el de stack técnico (irrelevante) no
+    expect(userMsg).toContain('Proceso de publicación');
+    expect(userMsg).toContain('revisión editorial');
+    expect(userMsg).not.toContain('FastAPI');
+  });
+});

@@ -18,6 +18,8 @@ export interface TaskExecutionInput {
   /** Artefactos producidos por las tareas anteriores, como contexto. */
   previousArtifacts: Artifact[];
   workspaceId: string;
+  /** Documentación relevante del workspace (métodos, políticas, contexto de negocio). */
+  knowledge?: Array<{ title: string; category: string; content: string }>;
 }
 
 export interface TaskExecutionOutput {

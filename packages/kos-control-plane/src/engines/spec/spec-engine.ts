@@ -15,7 +15,7 @@ export class SpecEngine {
 
   constructor(private config: Partial<SpecConfig> = {}, private llm?: LLMClient) {}
 
-  async generateSpec(intent: Intent, configOverrides?: Partial<SpecConfig>): Promise<SpecGenerationResult> {
+  async generateSpec(intent: Intent, context?: { knowledge?: Array<{ title: string; category: string; content: string }> }, configOverrides?: Partial<SpecConfig>): Promise<SpecGenerationResult> {
     const config = { ...this.defaultConfig, ...this.config, ...configOverrides };
     const correlationId = `spec-${intent.id}-${Date.now()}`;
 
@@ -36,7 +36,7 @@ export class SpecEngine {
 
     if (this.llm) {
       try {
-        const generated = await this.generateSpecWithLLM(intent);
+        const generated = await this.generateSpecWithLLM(intent, context?.knowledge ?? []);
         realObjective = generated.realObjective;
         superficialTask = generated.superficialTask;
         qualityCriteria = generated.qualityCriteria;
@@ -166,7 +166,7 @@ export class SpecEngine {
     return ['Revisa la especificación con stakeholders antes de ejecutar.', 'Documenta las integraciones externas.'];
   }
 
-  private async generateSpecWithLLM(intent: Intent): Promise<{ realObjective: string; superficialTask: string; qualityCriteria: QualityCriterion[]; executionPlan: ExecutionPlan; }> {
+  private async generateSpecWithLLM(intent: Intent, knowledge: Array<{ title: string; category: string; content: string }>): Promise<{ realObjective: string; superficialTask: string; qualityCriteria: QualityCriterion[]; executionPlan: ExecutionPlan; }> {
     const system = [
       'Eres el Spec Engine del kernel de gobernanza KOS.',
       'Transformas la intención de un usuario en una especificación ejecutable.',
@@ -182,7 +182,12 @@ export class SpecEngine {
     const completion = await this.llm!.complete(
       [
         { role: 'system', content: system },
-        { role: 'user', content: `Intención del usuario: ${intent.rawInput}` },
+        { role: 'user', content: [
+        `Intención del usuario: ${intent.rawInput}`,
+        knowledge.length > 0
+          ? `\nDocumentación del workspace (úsala para adaptar el plan a los métodos de trabajo de esta organización):\n${knowledge.map(k => `### ${k.title} [${k.category}]\n${k.content.slice(0, 1200)}`).join('\n\n')}`
+          : '',
+      ].filter(Boolean).join('\n') },
       ],
       { temperature: 0.2, maxTokens: 1500 }
     );

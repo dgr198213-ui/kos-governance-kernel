@@ -36,7 +36,7 @@ export class OpenRouterTaskExecutor implements TaskExecutor {
   }
 
   async executeTask(input: TaskExecutionInput): Promise<TaskExecutionOutput> {
-    const { task, specification, previousArtifacts } = input;
+    const { task, specification, previousArtifacts, knowledge = [] } = input;
 
     const mustHaveCriteria = specification.qualityCriteria
       .filter(c => c.priority === 'must-have')
@@ -53,6 +53,9 @@ export class OpenRouterTaskExecutor implements TaskExecutor {
       'Ejecutas una micro-tarea concreta dentro de un plan mayor. Produce únicamente el entregable pedido, sin preámbulos ni explicaciones meta.',
       `Objetivo real del plan: ${specification.realObjective}`,
       mustHaveCriteria ? `Criterios de calidad obligatorios:\n${mustHaveCriteria}` : '',
+      knowledge.length > 0
+        ? `Documentación del workspace (respétala como fuente de verdad de esta organización):\n${knowledge.map(k => `### ${k.title} [${k.category}]\n${this.truncate(k.content, 1000)}`).join('\n\n')}`
+        : '',
     ].filter(Boolean).join('\n\n');
 
     const user = [
