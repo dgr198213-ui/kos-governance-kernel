@@ -141,3 +141,33 @@ describe('KOSPipeline con Matriz de Gobernanza', () => {
     expect(approvalHandler).not.toHaveBeenCalled();
   });
 });
+
+describe('EnvironmentRepository: la configuración del workspace gobierna el pipeline', () => {
+  it('aplica la matriz personalizada persistida en lugar de la plantilla', async () => {
+    const customRepo = {
+      load: async () => ({
+        identity: { name: 'Agente Qodeia' },
+        governanceMatrix: {
+          always: [],
+          consult: [],
+          never: [{ action: 'publicar precios', rationale: 'Solo dirección aprueba precios', severity: 'critical' as const }],
+        },
+      }),
+      save: async () => {},
+    };
+
+    const { EnvironmentEngine } = await import('../engines/environment/environment-engine.js');
+    const pipeline = new KOSPipeline({}, { environment: new EnvironmentEngine({}, customRepo) });
+
+    // Esta intención viola la regla personalizada (no la de la plantilla)
+    const blocked = await pipeline.execute(makeIntent('quiero publicar los precios nuevos en la web'));
+    expect(blocked.success).toBe(false);
+    expect(blocked.failedAt).toBe('policy-check');
+    expect(blocked.failureReason).toContain('publicar precios');
+
+    // Y una intención que violaría la plantilla por defecto ahora pasa,
+    // porque la matriz personalizada la ha sustituido por completo
+    const allowed = await pipeline.execute(makeIntent('usar datos no anonimizados en los logs'));
+    expect(allowed.success).toBe(true);
+  });
+});

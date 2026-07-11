@@ -1,5 +1,8 @@
-import { KOSPipeline, SpecEngine, VerifierEngine } from '@kos/control-plane';
-import type { ApprovalHandler } from '@kos/control-plane';
+import { KOSPipeline, SpecEngine, VerifierEngine, EnvironmentEngine } from '@kos/control-plane';
+import type { ApprovalHandler, EnvironmentRepository } from '@kos/control-plane';
+import { LocalStorageEnvironmentRepository } from './LocalStorageEnvironmentRepository';
+
+export const DEFAULT_WORKSPACE_ID = 'default';
 import { ProviderRouter, OpenRouterProvider, OpenRouterTaskExecutor, OpenRouterLLMClient } from '@kos/capability-runtime';
 
 export interface ProviderSettings {
@@ -37,12 +40,13 @@ const browserApprovalHandler: ApprovalHandler = async ({ reasons, verificationSc
 export class ChatService {
   private pipeline: KOSPipeline;
   private router: ProviderRouter;
+  private environmentRepository: EnvironmentRepository = new LocalStorageEnvironmentRepository();
   private live = false;
   private activeModel: string | null = null;
 
   constructor() {
     this.router = new ProviderRouter();
-    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true }, { approvalHandler: browserApprovalHandler });
+    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true }, { approvalHandler: browserApprovalHandler, environment: new EnvironmentEngine({}, this.environmentRepository) });
   }
 
   /** Activa la ejecución real con la clave del usuario (solo en memoria). */
@@ -62,6 +66,7 @@ export class ChatService {
         spec: new SpecEngine({}, llm),        // planificación real
         verifier: new VerifierEngine({}, llm), // crítico real
         approvalHandler: browserApprovalHandler,
+        environment: new EnvironmentEngine({}, this.environmentRepository),
       }
     );
     this.live = true;
@@ -70,7 +75,7 @@ export class ChatService {
 
   /** Vuelve al modo simulado y descarta la clave. */
   resetToSimulated(): void {
-    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true }, { approvalHandler: browserApprovalHandler });
+    this.pipeline = new KOSPipeline({ enableHumanApproval: true, enableAudit: true }, { approvalHandler: browserApprovalHandler, environment: new EnvironmentEngine({}, this.environmentRepository) });
     this.live = false;
     this.activeModel = null;
   }
@@ -82,6 +87,11 @@ export class ChatService {
 
   getActiveModel(): string | null {
     return this.activeModel;
+  }
+
+  /** Repositorio de configuración del workspace (matriz, identidad...). */
+  getEnvironmentRepository(): EnvironmentRepository {
+    return this.environmentRepository;
   }
 
   /** Expone el router para configuración de proveedores desde la UI. */

@@ -1,5 +1,6 @@
 import { eventBus } from '../../event-bus/index.js';
 import type { EnvironmentConfig, Environment, SystemIdentity, KnowledgeBase, KnowledgeBaseItem, Skill, GovernanceMatrix, EnvironmentLoadResult } from './types.js';
+import type { EnvironmentRepository } from './environment-repository.js';
 
 export class EnvironmentEngine {
   private environments: Map<string, Environment> = new Map();
@@ -8,7 +9,7 @@ export class EnvironmentEngine {
     contextLoadingStrategy: 'on-demand', maxContextWindowSize: 100000, enableSkillAutoDiscovery: true
   };
 
-  constructor(private config: Partial<EnvironmentConfig> = {}) {}
+  constructor(private config: Partial<EnvironmentConfig> = {}, private repository?: EnvironmentRepository) {}
 
   async loadEnvironment(workspaceId: string, configOverrides?: Partial<EnvironmentConfig>): Promise<EnvironmentLoadResult> {
     const config = { ...this.defaultConfig, ...this.config, ...configOverrides };
@@ -19,10 +20,32 @@ export class EnvironmentEngine {
       workspaceId, correlationId, executionId: workspaceId, payload: { workspaceId, config }
     });
 
-    const identity = await this.loadIdentity(config.identityFile, workspaceId);
-    const knowledgeBase = await this.loadKnowledgeBase(config.knowledgeBasePath, config);
+    let identity = await this.loadIdentity(config.identityFile, workspaceId);
+    let knowledgeBase = await this.loadKnowledgeBase(config.knowledgeBasePath, config);
     const skills = await this.loadSkillsCatalog(config.skillsCatalogPath, config);
-    const governanceMatrix = await this.loadGovernanceMatrix(workspaceId);
+    let governanceMatrix = await this.loadGovernanceMatrix(workspaceId);
+
+    // Superponer la configuración persistida del workspace (si existe):
+    // lo que el usuario definió UNA vez prevalece sobre las plantillas.
+    if (this.repository) {
+      const stored = await this.repository.load(workspaceId).catch(() => null);
+      if (stored) {
+        if (stored.identity) identity = { ...identity, ...stored.identity };
+        if (stored.governanceMatrix) governanceMatrix = stored.governanceMatrix;
+        if (stored.knowledgeItems && stored.knowledgeItems.length > 0) {
+          const items = new Map<string, KnowledgeBaseItem>();
+          const indexes = new Map<string, string[]>();
+          for (const item of stored.knowledgeItems) {
+            items.set(item.id, item);
+            for (const tag of item.tags) {
+              if (!indexes.has(tag)) indexes.set(tag, []);
+              indexes.get(tag)!.push(item.id);
+            }
+          }
+          knowledgeBase = { items, indexes, totalItems: stored.knowledgeItems.length, loadedItems: items.size };
+        }
+      }
+    }
 
     const environment: Environment = {
       id: this.generateId(), workspaceId, identity, knowledgeBase, skills, governanceMatrix,

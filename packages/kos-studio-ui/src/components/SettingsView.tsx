@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { chatService } from '../services/ChatService';
+import GovernanceEditor from './GovernanceEditor';
 import { 
   Database, 
   Key, 
@@ -210,65 +211,7 @@ export default function SettingsView() {
           )}
 
           {activeSection === 'governance' && (
-            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
-              <h3 className="text-lg font-semibold mb-6">Governance Settings</h3>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Default Verification Threshold</label>
-                  <input
-                    type="number"
-                    defaultValue={85}
-                    min={0}
-                    max={100}
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-kos-primary"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Minimum score to pass verification (0-100)</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Max Feedback Loops</label>
-                  <input
-                    type="number"
-                    defaultValue={3}
-                    min={1}
-                    max={10}
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-kos-primary"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Maximum verification iterations per execution</p>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-slate-800 rounded-lg">
-                  <div>
-                    <p className="font-medium">Require Human Approval</p>
-                    <p className="text-sm text-slate-400">Always require human approval before commit</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" defaultChecked className="sr-only peer" />
-                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-kos-primary"></div>
-                  </label>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-slate-800 rounded-lg">
-                  <div>
-                    <p className="font-medium">Enable Multi-Agent Audit</p>
-                    <p className="text-sm text-slate-400">Use second model for cross-verification</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" defaultChecked className="sr-only peer" />
-                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-kos-primary"></div>
-                  </label>
-                </div>
-              </div>
-
-              <button
-                onClick={handleSave}
-                className="mt-6 px-6 py-2 bg-kos-primary hover:bg-kos-primary/90 rounded-lg font-medium transition-colors flex items-center gap-2"
-              >
-                {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                {saved ? 'Saved!' : 'Save Changes'}
-              </button>
-            </div>
+            <GovernanceEditor />
           )}
 
           {activeSection === 'general' && (
