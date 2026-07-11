@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { chatService } from '../services/ChatService';
 import GovernanceEditor from './GovernanceEditor';
 import KnowledgeEditor from './KnowledgeEditor';
+import AccountPanel from './AccountPanel';
 import { 
   Database, 
   Key, 
@@ -171,46 +172,9 @@ export default function SettingsView() {
           )}
 
           {activeSection === 'database' && (
-            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
-              <h3 className="text-lg font-semibold mb-6">Supabase Configuration</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Project URL</label>
-                  <input
-                    type="text"
-                    placeholder="https://your-project.supabase.co"
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-kos-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Anon Key</label>
-                  <input
-                    type="password"
-                    placeholder="eyJhbGc..."
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-kos-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Service Role Key (Optional)</label>
-                  <input
-                    type="password"
-                    placeholder="eyJhbGc..."
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-kos-primary"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Required for admin operations</p>
-                </div>
-              </div>
-
-              <button
-                onClick={handleSave}
-                className="mt-6 px-6 py-2 bg-kos-primary hover:bg-kos-primary/90 rounded-lg font-medium transition-colors flex items-center gap-2"
-              >
-                {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                {saved ? 'Saved!' : 'Save Changes'}
-              </button>
-            </div>
+            <AccountPanel />
           )}
+          
 
           {activeSection === 'governance' && (
             <GovernanceEditor />

@@ -68,3 +68,13 @@ UPDATE workspaces SET owner_id = '<uuid-del-usuario>' WHERE owner_id IS NULL;
 ```
 
 Tras la migración, `createWorkspace()` exige una sesión autenticada de Supabase Auth: sin login, la inserción se rechaza tanto en el cliente como en la base de datos.
+
+## Sincronización en la nube de KOS Studio (migración 0003)
+
+La tabla `user_environments` guarda la configuración del workspace que el usuario edita en Studio (identidad, matriz de gobernanza, documentación), con RLS por `auth.uid()`. Para activar la nube en el despliegue:
+
+1. Ejecuta `migrations/0002_rls_hardening.sql` y `migrations/0003_user_environments.sql` en el SQL Editor de Supabase.
+2. En Supabase → Authentication → URL Configuration, añade la URL del despliegue de Vercel como Site URL / Redirect URL (para el magic link).
+3. En Vercel → Settings → Environment Variables del proyecto, define `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` y redespliega.
+
+Sin estos pasos, Studio funciona igualmente con persistencia local del navegador.

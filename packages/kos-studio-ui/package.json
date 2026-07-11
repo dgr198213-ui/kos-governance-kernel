@@ -15,7 +15,8 @@
     "@kos/capability-runtime": "0.2.0",
     "@kos/persistence": "0.2.0",
     "lucide-react": "^0.323.0",
-    "recharts": "^2.11.0"
+    "recharts": "^2.11.0",
+    "@supabase/supabase-js": "^2.45.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",
